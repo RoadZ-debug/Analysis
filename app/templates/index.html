@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="layui-row layui-col-space15">
+  <div class="layui-col-md12">
+    <div class="layui-card">
+      <div class="layui-card-header">
+        舆情分析报告
+        <a href="{{ url_for('create_report') }}" class="layui-btn layui-btn-sm layui-layout-right" style="margin-top: 10px; margin-right: 20px;">生成新报告</a>
+      </div>
+      <div class="layui-card-body">
+        {% if reports %}
+        <table class="layui-table">
+            <colgroup>
+              <col width="200">
+              <col>
+              <col width="150">
+              <col width="200">
+              <col width="150">
+            </colgroup>
+            <thead>
+              <tr>
+                <th>标题</th>
+                <th>摘要</th>
+                <th>生成时间</th>
+                <th>作者</th>
+                <th>操作</th>
+              </tr> 
+            </thead>
+            <tbody>
+              {% for report in reports %}
+              <tr>
+                <td>{{ report.title }}</td>
+                <td>{{ report.content[:50] | striptags }}...</td>
+                <td>{{ report.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                <td>{{ report.author.username }}</td>
+                <td>
+                    <a href="{{ url_for('view_report', id=report.id) }}" class="layui-btn layui-btn-normal layui-btn-xs">查看详情</a>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div style="text-align: center; padding: 20px; color: #999;">
+            暂无报告，请点击右上角生成新报告。
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

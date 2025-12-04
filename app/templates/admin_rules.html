@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="layui-card">
+    <div class="layui-card-header">
+        <h2>采集规则库</h2>
+    </div>
+    <div class="layui-card-body">
+        <div class="layui-btn-container">
+            <button class="layui-btn layui-btn-sm" onclick="openRuleModal()">新增规则</button>
+        </div>
+        <table class="layui-table">
+            <colgroup>
+                <col width="50">
+                <col width="150">
+                <col>
+                <col>
+                <col>
+                <col width="150">
+                <col width="150">
+            </colgroup>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>站点名称</th>
+                    <th>标题XPath</th>
+                    <th>内容XPath</th>
+                    <th>Request Headers</th>
+                    <th>更新时间</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for rule in rules %}
+                <tr>
+                    <td>{{ rule.id }}</td>
+                    <td>{{ rule.site_name }}</td>
+                    <td>{{ rule.title_xpath }}</td>
+                    <td>{{ rule.content_xpath }}</td>
+                    <td title="{{ rule.headers or '' }}">{{ (rule.headers or '')[:50] }}...</td>
+                    <td>{{ rule.updated_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td>
+                        <button class="layui-btn layui-btn-xs btn-edit" data-rule='{{ rule.to_dict()|tojson|forceescape }}'>编辑</button>
+                        <button class="layui-btn layui-btn-danger layui-btn-xs btn-delete" data-id="{{ rule.id }}">删除</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div id="ruleModal" style="display: none; padding: 20px;">
+    <form class="layui-form" lay-filter="ruleForm">
+        <input type="hidden" name="id">
+        <div class="layui-form-item">
+            <label class="layui-form-label">站点名称</label>
+            <div class="layui-input-block">
+                <input type="text" name="site_name" required lay-verify="required" placeholder="请输入站点名称" autocomplete="off" class="layui-input">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">标题XPath</label>
+            <div class="layui-input-block">
+                <input type="text" name="title_xpath" required lay-verify="required" placeholder="请输入标题XPath" autocomplete="off" class="layui-input">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">内容XPath</label>
+            <div class="layui-input-block">
+                <input type="text" name="content_xpath" required lay-verify="required" placeholder="请输入内容XPath" autocomplete="off" class="layui-input">
+            </div>
+        </div>
+        <div class="layui-form-item layui-form-text">
+            <label class="layui-form-label">Request Headers</label>
+            <div class="layui-input-block">
+                <textarea name="headers" placeholder="请输入JSON格式的Request Headers" class="layui-textarea" style="height: 150px;"></textarea>
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <div class="layui-input-block">
+                <button class="layui-btn" lay-submit lay-filter="submitRule">立即提交</button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+layui.use(['layer', 'form', 'jquery'], function(){
+    var layer = layui.layer;
+    var form = layui.form;
+    var $ = layui.jquery;
+    var ruleIndex;
+
+    // Open Modal
+    window.openRuleModal = function() {
+        // Clear form
+        form.val("ruleForm", {
+            "id": "",
+            "site_name": "",
+            "title_xpath": "",
+            "content_xpath": "",
+            "headers": '{\n  "User-Agent": "Mozilla/5.0"\n}'
+        });
+        
+        ruleIndex = layer.open({
+            type: 1,
+            title: '新增采集规则',
+            area: ['600px', '550px'],
+            content: $('#ruleModal')
+        });
+    }
+
+    // Edit Rule
+    $(document).on('click', '.btn-edit', function() {
+        var data = $(this).data('rule');
+        form.val("ruleForm", {
+            "id": data.id,
+            "site_name": data.site_name,
+            "title_xpath": data.title_xpath,
+            "content_xpath": data.content_xpath,
+            "headers": data.headers
+        });
+        
+        ruleIndex = layer.open({
+            type: 1,
+            title: '编辑采集规则',
+            area: ['600px', '550px'],
+            content: $('#ruleModal')
+        });
+    });
+
+    // Submit Form
+    form.on('submit(submitRule)', function(data){
+        var url = data.field.id ? "{{ url_for('rule_edit') }}" : "{{ url_for('rule_add') }}";
+        
+        $.ajax({
+            url: url,
+            type: "POST",
+            data: data.field,
+            success: function(res){
+                if(res.code === 0){
+                    layer.close(ruleIndex);
+                    layer.msg('操作成功', {icon: 1, time: 1000}, function(){
+                        location.reload();
+                    });
+                } else {
+                    layer.msg(res.msg, {icon: 2});
+                }
+            },
+            error: function(){
+                layer.msg('请求失败', {icon: 2});
+            }
+        });
+        return false;
+    });
+
+    // Delete Rule
+    $(document).on('click', '.btn-delete', function() {
+        var id = $(this).data('id');
+        layer.confirm('确定要删除该规则吗？', function(index){
+            $.ajax({
+                url: "{{ url_for('rule_delete') }}",
+                type: "POST",
+                data: {id: id},
+                success: function(res){
+                    if(res.code === 0){
+                        layer.msg('删除成功', {icon: 1, time: 1000}, function(){
+                            location.reload();
+                        });
+                    } else {
+                        layer.msg(res.msg, {icon: 2});
+                    }
+                }
+            });
+            layer.close(index);
+        });
+    });
+});
+</script>
+{% endblock %}

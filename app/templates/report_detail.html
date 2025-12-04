@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="layui-row layui-col-space15">
+    <div class="layui-col-md10 layui-col-md-offset1">
+        <div class="layui-card">
+            <div class="layui-card-header">
+                <span style="font-size: 18px; font-weight: bold;">{{ report.title }}</span>
+                <span class="layui-layout-right" style="font-size: 12px; color: #999; margin-right: 15px;">
+                    生成时间：{{ report.created_at.strftime('%Y-%m-%d %H:%M:%S') }} | 作者：{{ report.author.username }}
+                </span>
+            </div>
+            <div class="layui-card-body" style="padding: 30px; line-height: 1.8;">
+                {{ report.content | safe }}
+            </div>
+            <div class="layui-card-footer" style="padding: 10px 30px; text-align: center;">
+                <a href="{{ url_for('index') }}" class="layui-btn layui-btn-primary">返回列表</a>
+                <button class="layui-btn" onclick="window.print()">打印报告</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

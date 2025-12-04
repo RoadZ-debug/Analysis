@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="layui-card">
+    <div class="layui-card-header">
+        <h2>数据采集管理</h2>
+    </div>
+    <div class="layui-card-body">
+        <!-- Search Form -->
+        <div class="layui-form layui-row layui-col-space15">
+            <div class="layui-col-md10">
+                <input type="text" name="keyword" id="keyword" required lay-verify="required" placeholder="请输入采集关键词" autocomplete="off" class="layui-input">
+            </div>
+            <div class="layui-col-md2">
+                <button class="layui-btn layui-btn-fluid" id="btn-collect">
+                    <i class="layui-icon layui-icon-search"></i> 开始采集
+                </button>
+            </div>
+        </div>
+
+        <hr>
+
+        <!-- Progress Bar (Hidden by default) -->
+        <div id="progress-container" style="display: none; margin: 20px 0;">
+            <div class="layui-progress layui-progress-big" lay-showpercent="true" lay-filter="collection-progress">
+                <div class="layui-progress-bar layui-bg-blue" lay-percent="0%"></div>
+            </div>
+            <p id="progress-text" style="text-align: center; margin-top: 10px;">准备开始采集...</p>
+        </div>
+
+        <!-- Results Area -->
+        <div id="results-area" style="margin-top: 20px;">
+            <!-- Toolbar -->
+            <div class="layui-btn-container" style="display: none;" id="toolbar">
+                <button class="layui-btn layui-btn-sm" id="btn-save-all">批量保存到数据库</button>
+                <button class="layui-btn layui-btn-sm layui-btn-warm" id="btn-deep-batch">批量详细采集</button>
+            </div>
+            
+            <div id="news-list" class="layui-row layui-col-space15">
+                <!-- News items will be injected here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.layui-elip-2 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+layui.use(['layer', 'element', 'form', 'jquery'], function(){
+    var layer = layui.layer;
+    var element = layui.element;
+    var $ = layui.jquery;
+    
+    // Store collected data in memory
+    var collectedData = [];
+
+    // Click Collect Button
+    $('#btn-collect').click(function(){
+        var keyword = $('#keyword').val();
+        if(!keyword){
+            layer.msg('请输入关键词');
+            return;
+        }
+
+        // Reset UI
+        $('#news-list').empty();
+        $('#toolbar').hide();
+        $('#progress-container').show();
+        collectedData = [];
+        
+        // Simulate progress
+        element.progress('collection-progress', '10%');
+        $('#progress-text').text('正在连接采集节点...');
+
+        // AJAX Request
+        $.ajax({
+            url: "{{ url_for('collection_search') }}",
+            type: "POST",
+            data: {keyword: keyword},
+            beforeSend: function(){
+                element.progress('collection-progress', '30%');
+                $('#progress-text').text('正在抓取数据...');
+            },
+            success: function(res){
+                element.progress('collection-progress', '100%');
+                $('#progress-text').text('采集完成！');
+                
+                if(res.code === 0 && res.data.length > 0){
+                    collectedData = res.data;
+                    renderList(res.data);
+                    $('#toolbar').show();
+                } else {
+                    $('#news-list').html('<p style="text-align:center; color: #999;">未找到相关数据</p>');
+                }
+                
+                setTimeout(function(){
+                    $('#progress-container').fadeOut();
+                }, 2000);
+            },
+            error: function(){
+                element.progress('collection-progress', '0%');
+                $('#progress-text').text('采集失败，请重试');
+                layer.msg('采集请求失败');
+            }
+        });
+    });
+
+    // Render List
+    function renderList(data){
+        var html = '';
+        $.each(data, function(index, item){
+            var coverHtml = item.cover ? 
+                '<div class="layui-col-md3"><img src="'+item.cover+'" style="width:100%; height:120px; object-fit:cover;"></div>' : 
+                '';
+            var contentClass = item.cover ? 'layui-col-md9' : 'layui-col-md12';
+            
+            html += '<div class="layui-col-md12" id="item-'+index+'">';
+            html += '  <div class="layui-card" style="border: 1px solid #eee;">';
+            html += '    <div class="layui-card-body">';
+            html += '      <div class="layui-row layui-col-space15">';
+            
+            // Checkbox
+            html += '        <div class="layui-col-md1" style="text-align:center; line-height: 120px;">';
+            html += '          <input type="checkbox" class="select-item" data-index="'+index+'" style="transform: scale(1.5);">';
+            html += '        </div>';
+            
+            // Content
+            html += '        <div class="layui-col-md11">';
+            html += '          <div class="layui-row layui-col-space10">';
+            html +=              coverHtml;
+            html += '            <div class="'+contentClass+'">';
+            html += '              <h3 style="font-weight:bold;"><a href="'+item.url+'" target="_blank">'+item.title+'</a></h3>';
+            html += '              <p style="color:#999; margin: 5px 0;">来源: '+item.source+'</p>';
+            html += '              <p class="layui-elip-2">'+item.summary+'</p>';
+            html += '              <div style="margin-top: 10px;">';
+            html += '                <button class="layui-btn layui-btn-xs layui-btn-normal btn-deep" data-index="'+index+'">深度采集</button>';
+            html += '                <span class="deep-status layui-badge layui-bg-gray" id="status-'+index+'">未深度采集</span>';
+            html += '              </div>';
+            html += '            </div>';
+            html += '          </div>';
+            html += '        </div>';
+            
+            html += '      </div>';
+            html += '    </div>';
+            html += '  </div>';
+            html += '</div>';
+        });
+        $('#news-list').html(html);
+    }
+
+    // Deep Collect Click
+    $(document).on('click', '.btn-deep', function(){
+        var index = $(this).data('index');
+        var item = collectedData[index];
+        var btn = $(this);
+        
+        if(item.is_deep_collected){
+            layer.msg('该条目已进行过深度采集');
+            return;
+        }
+        
+        btn.addClass('layui-btn-disabled').prop('disabled', true).text('采集中...');
+        
+        $.ajax({
+            url: "{{ url_for('collection_deep') }}",
+            type: "POST",
+            data: {url: item.url, source: item.source},
+            success: function(res){
+                if(res.code === 0){
+                    collectedData[index].deep_content = res.content;
+                    collectedData[index].is_deep_collected = true;
+                    if(res.title) {
+                        collectedData[index].title = res.title;
+                        $('#item-'+index).find('h3 a').text(res.title);
+                    }
+                    
+                    btn.text('深度采集完成').removeClass('layui-btn-normal').addClass('layui-btn-primary');
+                    $('#status-'+index).removeClass('layui-bg-gray').addClass('layui-bg-green').text('已深度采集');
+                    layer.msg('深度采集成功');
+                } else {
+                    btn.removeClass('layui-btn-disabled').prop('disabled', false).text('深度采集');
+                    layer.msg('采集失败: ' + res.msg);
+                }
+            },
+            error: function(){
+                btn.removeClass('layui-btn-disabled').prop('disabled', false).text('深度采集');
+                layer.msg('网络错误');
+            }
+        });
+    });
+
+    // Batch Save
+    $('#btn-save-all').click(function(){
+        var selectedData = [];
+        $('.select-item:checked').each(function(){
+            var index = $(this).data('index');
+            selectedData.push(collectedData[index]);
+        });
+
+        if(selectedData.length === 0){
+            layer.msg('请先选择要保存的数据');
+            return;
+        }
+
+        var loading = layer.load(1);
+        $.ajax({
+            url: "{{ url_for('collection_save') }}",
+            type: "POST",
+            contentType: "application/json",
+            data: JSON.stringify({items: selectedData}),
+            success: function(res){
+                layer.close(loading);
+                if(res.code === 0){
+                    layer.alert('成功保存 ' + res.count + ' 条数据', {icon: 1});
+                } else {
+                    layer.msg('保存失败: ' + res.msg);
+                }
+            },
+            error: function(){
+                layer.close(loading);
+                layer.msg('请求失败');
+            }
+        });
+    });
+
+    // Batch Deep Collect
+    $('#btn-deep-batch').click(function(){
+        var selectedItems = [];
+        $('.select-item:checked').each(function(){
+            var index = $(this).data('index');
+            var item = collectedData[index];
+            if(!item.is_deep_collected){
+                selectedItems.push({
+                    index: index,
+                    url: item.url,
+                    source: item.source
+                });
+            }
+        });
+        
+        if(selectedItems.length === 0){
+            layer.msg('请选择未进行深度采集的项目');
+            return;
+        }
+        
+        var btn = $(this);
+        btn.addClass('layui-btn-disabled').prop('disabled', true).text('正在采集...');
+        
+        $.ajax({
+            url: "{{ url_for('collection_deep_batch') }}",
+            type: "POST",
+            contentType: "application/json",
+            data: JSON.stringify({items: selectedItems}),
+            success: function(res){
+                if(res.code === 0){
+                    var count = 0;
+                    res.results.forEach(function(r){
+                        if(r.status === 'success'){
+                            collectedData[r.index].deep_content = r.content;
+                            collectedData[r.index].is_deep_collected = true;
+                            if(r.title) {
+                                collectedData[r.index].title = r.title;
+                                $('#item-'+r.index).find('h3 a').text(r.title);
+                            }
+                            
+                            // Update UI
+                            $('#status-'+r.index).removeClass('layui-bg-gray').addClass('layui-bg-green').text('已深度采集');
+                            $('#item-'+r.index).find('.btn-deep').text('深度采集完成').removeClass('layui-btn-normal').addClass('layui-btn-primary');
+                            count++;
+                        }
+                    });
+                    layer.msg('成功深度采集 ' + count + ' 条数据');
+                } else {
+                    layer.msg('批量采集失败: ' + res.msg);
+                }
+                btn.removeClass('layui-btn-disabled').prop('disabled', false).text('批量详细采集');
+            },
+            error: function(){
+                btn.removeClass('layui-btn-disabled').prop('disabled', false).text('批量详细采集');
+                layer.msg('网络错误');
+            }
+        });
+    });
+
+});
+</script>
+{% endblock %}

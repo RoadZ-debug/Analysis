@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="layui-tab layui-tab-brief" lay-filter="docDemoTabBrief">
+  <ul class="layui-tab-title">
+    <li class="layui-this">用户管理</li>
+    <li>系统设置</li>
+  </ul>
+  <div class="layui-tab-content">
+    <!-- User Management -->
+    <div class="layui-tab-item layui-show">
+      <div class="layui-card">
+        <div class="layui-card-header">
+          用户列表
+          <div class="layui-layout-right" style="margin-top: 10px; margin-right: 20px;">
+            <button class="layui-btn layui-btn-sm" onclick="addUser()">添加用户</button>
+          </div>
+        </div>
+        <div class="layui-card-body">
+          <table class="layui-table">
+            <colgroup>
+              <col width="150">
+              <col width="200">
+              <col>
+              <col width="150">
+            </colgroup>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>用户名</th>
+                <th>角色</th>
+                <th>操作</th>
+              </tr> 
+            </thead>
+            <tbody>
+              {% for user in users %}
+              <tr>
+                <td>{{ user.id }}</td>
+                <td>{{ user.username }}</td>
+                <td>
+                    {% if user.role == 'admin' %}
+                    <span class="layui-badge layui-bg-blue">管理员</span>
+                    {% else %}
+                    <span class="layui-badge layui-bg-gray">普通用户</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if user.username != 'admin' %}
+                    <a href="{{ url_for('delete_user', id=user.id) }}" class="layui-btn layui-btn-danger layui-btn-xs" onclick="return confirm('确定要删除吗？')">删除</a>
+                    {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    
+    <!-- System Settings -->
+    <div class="layui-tab-item">
+      <div class="layui-card">
+        <div class="layui-card-header">基本设置</div>
+        <div class="layui-card-body">
+          <form class="layui-form" action="" method="post">
+            <div class="layui-form-item">
+              <label class="layui-form-label">应用名称</label>
+              <div class="layui-input-block">
+                <input type="text" name="app_name" required  lay-verify="required" value="{{ settings.app_name }}" autocomplete="off" class="layui-input">
+              </div>
+            </div>
+            <div class="layui-form-item">
+              <label class="layui-form-label">LOGO URL</label>
+              <div class="layui-input-block">
+                <input type="text" name="logo_url" value="{{ settings.logo_url or '' }}" placeholder="请输入图片URL" autocomplete="off" class="layui-input">
+              </div>
+            </div>
+            <div class="layui-form-item">
+              <div class="layui-input-block">
+                <button class="layui-btn" lay-submit lay-filter="formDemo">立即提交</button>
+                <button type="reset" class="layui-btn layui-btn-primary">重置</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div> 
+
+<!-- Add User Modal Template -->
+<div id="addUserModal" style="display: none; padding: 20px;">
+    <form class="layui-form" action="{{ url_for('add_user') }}" method="post">
+        <div class="layui-form-item">
+            <label class="layui-form-label">用户名</label>
+            <div class="layui-input-block">
+                <input type="text" name="username" required lay-verify="required" placeholder="请输入用户名" autocomplete="off" class="layui-input">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">密码</label>
+            <div class="layui-input-block">
+                <input type="password" name="password" required lay-verify="required" placeholder="请输入密码" autocomplete="off" class="layui-input">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">角色</label>
+            <div class="layui-input-block">
+                <select name="role" lay-verify="required">
+                    <option value="user">普通用户</option>
+                    <option value="admin">管理员</option>
+                </select>
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <div class="layui-input-block">
+                <button class="layui-btn" lay-submit>立即添加</button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+layui.use(['element', 'form', 'layer'], function(){
+  var element = layui.element;
+  var form = layui.form;
+  var layer = layui.layer;
+  var $ = layui.$;
+
+  window.addUser = function() {
+    layer.open({
+        type: 1,
+        title: '添加用户',
+        area: ['500px', '350px'],
+        content: $('#addUserModal'),
+        success: function(layero, index){
+            form.render(); // Re-render form elements in the modal
+        }
+    });
+  }
+});
+</script>
+{% endblock %}
