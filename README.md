@@ -1,4 +1,4 @@
-# Project
+# Analysis
 
 This project structure was generated based on the provided template.
 
