@@ -198,10 +198,15 @@ def collection_content(id):
     if not data:
         return jsonify({'code': 1, 'msg': 'Data not found'})
         
-    if not data.is_deep_collected:
-        return jsonify({'code': 1, 'msg': 'Not deep collected yet'})
-        
-    return jsonify({'code': 0, 'content': data.deep_content, 'title': data.title})
+    return jsonify({
+        'code': 0, 
+        'content': data.deep_content, 
+        'title': data.title,
+        'source': data.source,
+        'summary': data.summary,
+        'original_url': data.original_url,
+        'is_deep_collected': data.is_deep_collected
+    })
 
 @app.route('/admin/collection/save', methods=['POST'])
 @login_required

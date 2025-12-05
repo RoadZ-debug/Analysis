@@ -36,7 +36,7 @@
                     <td>{{ item.id }}</td>
                     <td><a href="{{ item.original_url }}" target="_blank" style="color: #01AAED;">{{ item.title }}</a></td>
                     <td>{{ item.source }}</td>
-                    <td>{{ item.is_deep_collected }}</td>
+                    <td>{{ 1 if item.is_deep_collected else 0 }}</td>
                     <td>{{ item.created_at.strftime('%Y-%m-%d %H:%M:%S') if item.created_at else '' }}</td>
                     <td></td>
                 </tr>
@@ -51,11 +51,13 @@
 
 <!-- Status Template -->
 <script type="text/html" id="statusTpl">
-  {{#  if(d.is_deep_collected){ }}
+  {% raw %}
+  {{#  if(d.is_deep_collected == 1){ }}
     <span class="layui-badge layui-bg-green">已采集</span>
   {{#  } else { }}
     <span class="layui-badge layui-bg-gray">未采集</span>
   {{#  } }}
+  {% endraw %}
 </script>
 
 <!-- Toolbar Template -->
@@ -114,6 +116,15 @@ layui.use(['table', 'layer', 'form', 'jquery'], function(){
         page: true
     });
     
+    // Search Handler
+    form.on('submit(data-search)', function(data){
+        var field = data.field;
+        var keyword = field.search_keyword;
+        // Reload page with search param
+        location.href = "{{ url_for('admin_data_warehouse') }}?search_keyword=" + encodeURIComponent(keyword);
+        return false;
+    });
+    
     // Listen to tool events
     table.on('tool(data-table)', function(obj){
         var data = obj.data;
@@ -136,9 +147,11 @@ layui.use(['table', 'layer', 'form', 'jquery'], function(){
             var loading = layer.load(1);
             $.get("/admin/collection/content/" + data.id, function(res){
                 layer.close(loading);
-                if(res.code === 0 || res.code === 1){ 
-                    // Note: code 1 might be "not deep collected", but we still edit title/source
-                    openEditModal(data, res.content || '');
+                if(res.code === 0){ 
+                    // Use fresh data from server
+                    var fullData = res;
+                    fullData.id = data.id;
+                    openEditModal(fullData);
                 } else {
                     layer.msg(res.msg);
                 }
@@ -148,7 +161,7 @@ layui.use(['table', 'layer', 'form', 'jquery'], function(){
         }
     });
     
-    function openEditModal(data, content){
+    function openEditModal(data){
         layer.open({
             type: 1,
             title: '编辑数据',
@@ -157,13 +170,10 @@ layui.use(['table', 'layer', 'form', 'jquery'], function(){
             success: function(layero, index){
                 var f = layero.find('form');
                 f.find('[name="id"]').val(data.id);
-                f.find('[name="title"]').val(data.title); // Table data might have HTML, be careful
-                // Actually layui table data is text if not templet used, but let's just set it.
-                // Ideally we should fetch fresh data from DB for edit.
-                
-                // Let's just set what we have + content
+                f.find('[name="title"]').val(data.title);
                 f.find('[name="source"]').val(data.source);
-                f.find('[name="deep_content"]').val(content);
+                f.find('[name="summary"]').val(data.summary);
+                f.find('[name="deep_content"]').val(data.content);
                 
                 form.render();
                 
@@ -185,7 +195,11 @@ layui.use(['table', 'layer', 'form', 'jquery'], function(){
     }
     
     function openAiAnalyze(data){
-        var prompt = "请分析以下新闻内容并提取关键信息：\n标题：" + data.title;
+        var cleanTitle = data.title;
+        if (cleanTitle && typeof cleanTitle === 'string' && cleanTitle.indexOf('<') > -1) {
+             cleanTitle = $(cleanTitle).text();
+        }
+        var prompt = "请分析以下新闻内容并提取关键信息：\n标题：" + cleanTitle;
         
         layer.prompt({
             formType: 2,
