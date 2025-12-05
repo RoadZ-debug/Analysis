@@ -143,8 +143,14 @@ layui.use(['layer', 'element', 'form', 'jquery'], function(){
             html += '              <p style="color:#999; margin: 5px 0;">来源: '+item.source+'</p>';
             html += '              <p class="layui-elip-2">'+item.summary+'</p>';
             html += '              <div style="margin-top: 10px;">';
+            // If is_deep_collected is true, it means we loaded it from DB or previous session?
+            // Actually for search results from Baidu, is_deep_collected is likely undefined/false.
+            // We will use `item.id` to check if it's saved in DB if we enhanced search to check DB.
+            // But currently search just returns fresh scrape.
+            // So default is false.
             html += '                <button class="layui-btn layui-btn-xs layui-btn-normal btn-deep" data-index="'+index+'">深度采集</button>';
-            html += '                <span class="deep-status layui-badge layui-bg-gray" id="status-'+index+'">未深度采集</span>';
+            html += '                <button class="layui-btn layui-btn-xs layui-btn-warm btn-preview" data-index="'+index+'" style="display:none">预览内容</button>';
+            html += '                <span class="deep-status layui-badge layui-bg-gray" id="status-'+index+'">未采集</span>';
             html += '              </div>';
             html += '            </div>';
             html += '          </div>';
@@ -174,19 +180,30 @@ layui.use(['layer', 'element', 'form', 'jquery'], function(){
         $.ajax({
             url: "{{ url_for('collection_deep') }}",
             type: "POST",
-            data: {url: item.url, source: item.source},
+            data: {
+                url: item.url, 
+                source: item.source,
+                title: item.title,
+                summary: item.summary,
+                cover: item.cover
+            },
             success: function(res){
                 if(res.code === 0){
+                    // Update local data
                     collectedData[index].deep_content = res.content;
                     collectedData[index].is_deep_collected = true;
+                    collectedData[index].id = res.id; // Save DB ID
+
                     if(res.title) {
                         collectedData[index].title = res.title;
                         $('#item-'+index).find('h3 a').text(res.title);
                     }
                     
                     btn.text('深度采集完成').removeClass('layui-btn-normal').addClass('layui-btn-primary');
-                    $('#status-'+index).removeClass('layui-bg-gray').addClass('layui-bg-green').text('已深度采集');
-                    layer.msg('深度采集成功');
+                    $('#status-'+index).removeClass('layui-bg-gray').addClass('layui-bg-green').text('已采集');
+                    // Show preview button
+                    $('#item-'+index).find('.btn-preview').show();
+                    layer.msg('深度采集成功并保存');
                 } else {
                     btn.removeClass('layui-btn-disabled').prop('disabled', false).text('深度采集');
                     layer.msg('采集失败: ' + res.msg);
@@ -243,7 +260,10 @@ layui.use(['layer', 'element', 'form', 'jquery'], function(){
                 selectedItems.push({
                     index: index,
                     url: item.url,
-                    source: item.source
+                    source: item.source,
+                    title: item.title,
+                    summary: item.summary,
+                    cover: item.cover
                 });
             }
         });
@@ -268,6 +288,7 @@ layui.use(['layer', 'element', 'form', 'jquery'], function(){
                         if(r.status === 'success'){
                             collectedData[r.index].deep_content = r.content;
                             collectedData[r.index].is_deep_collected = true;
+                            collectedData[r.index].id = r.id; // Save DB ID
                             if(r.title) {
                                 collectedData[r.index].title = r.title;
                                 $('#item-'+r.index).find('h3 a').text(r.title);
@@ -276,6 +297,7 @@ layui.use(['layer', 'element', 'form', 'jquery'], function(){
                             // Update UI
                             $('#status-'+r.index).removeClass('layui-bg-gray').addClass('layui-bg-green').text('已深度采集');
                             $('#item-'+r.index).find('.btn-deep').text('深度采集完成').removeClass('layui-btn-normal').addClass('layui-btn-primary');
+                            $('#item-'+r.index).find('.btn-preview').show();
                             count++;
                         }
                     });
@@ -291,6 +313,55 @@ layui.use(['layer', 'element', 'form', 'jquery'], function(){
             }
         });
     });
+
+    // Preview Content
+    $(document).on('click', '.btn-preview', function(){
+        var index = $(this).data('index');
+        var item = collectedData[index];
+        
+        if(!item.is_deep_collected){
+            layer.msg('暂无详细内容，请先进行深度采集');
+            return;
+        }
+        
+        if(!item.id){
+             // Fallback to local content if ID is missing (should not happen after fix)
+             if(item.deep_content){
+                showPreview(item.title, item.deep_content);
+             } else {
+                layer.msg('未找到内容 ID，无法预览');
+             }
+             return;
+        }
+
+        var loading = layer.load(1);
+        $.ajax({
+            url: "/admin/collection/content/" + item.id,
+            type: "GET",
+            success: function(res){
+                layer.close(loading);
+                if(res.code === 0){
+                    showPreview(res.title, res.content);
+                } else {
+                    layer.msg('读取失败: ' + res.msg);
+                }
+            },
+            error: function(){
+                layer.close(loading);
+                layer.msg('请求失败');
+            }
+        });
+    });
+    
+    function showPreview(title, content){
+        layer.open({
+            type: 1,
+            title: '内容预览: ' + title,
+            area: ['800px', '600px'],
+            shadeClose: true,
+            content: '<div style="padding: 20px; line-height: 1.6; font-size: 16px;">' + content + '</div>'
+        });
+    }
 
 });
 </script>

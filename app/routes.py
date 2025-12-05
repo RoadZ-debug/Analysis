@@ -1,9 +1,10 @@
 from flask import render_template, flash, redirect, url_for, request, jsonify
 from app import app, db
-from app.models import User, SystemSettings, Report, CollectedData, CollectionRule
+from app.models import User, SystemSettings, Report, CollectedData, CollectionRule, AiEngine
 from flask_login import current_user, login_user, logout_user, login_required
 from urllib.parse import urlparse
 import time
+import json
 from app.scraper import scrape_baidu_news, scrape_news_detail, scrape_with_rule
 
 # Import collection routes logic
@@ -44,13 +45,16 @@ def collection_deep():
         
     url = request.form.get('url')
     source = request.form.get('source')
+    title = request.form.get('title')
+    summary = request.form.get('summary')
+    cover = request.form.get('cover')
     
     if not url:
         return jsonify({'code': 1, 'msg': 'URL required'})
         
     try:
         content = ""
-        title = ""
+        new_title = title or ""
         
         # Try to find a rule first
         if source:
@@ -59,13 +63,38 @@ def collection_deep():
                 result = scrape_with_rule(url, rule.to_dict())
                 if result and result.get('content'):
                     content = result['content']
-                    title = result.get('title')
+                    if result.get('title'):
+                        new_title = result.get('title')
         
         # Fallback
         if not content:
             content = scrape_news_detail(url)
             
-        return jsonify({'code': 0, 'content': content, 'title': title})
+        # Save to DB
+        if content:
+            # Check if exists
+            data = CollectedData.query.filter_by(original_url=url).first()
+            if not data:
+                data = CollectedData(
+                    title=new_title,
+                    summary=summary,
+                    cover_url=cover,
+                    source=source,
+                    original_url=url,
+                    is_deep_collected=True,
+                    deep_content=content
+                )
+                db.session.add(data)
+            else:
+                data.title = new_title
+                data.is_deep_collected = True
+                data.deep_content = content
+                
+            db.session.commit()
+            return jsonify({'code': 0, 'content': content, 'title': new_title, 'id': data.id})
+        else:
+             return jsonify({'code': 1, 'msg': '采集失败，未能获取内容'})
+
     except Exception as e:
         return jsonify({'code': 1, 'msg': str(e)})
 
@@ -86,13 +115,16 @@ def collection_deep_batch():
         url = item.get('url')
         source = item.get('source')
         index = item.get('index')
+        title = item.get('title')
+        summary = item.get('summary')
+        cover = item.get('cover')
         
         if not url:
             continue
             
         try:
             content = ""
-            title = ""
+            new_title = title or ""
             
             # Try rule
             rule = CollectionRule.query.filter_by(site_name=source).first() if source else None
@@ -100,19 +132,51 @@ def collection_deep_batch():
                 scrape_res = scrape_with_rule(url, rule.to_dict())
                 if scrape_res:
                     content = scrape_res.get('content', '')
-                    title = scrape_res.get('title', '')
+                    if scrape_res.get('title'):
+                        new_title = scrape_res.get('title')
             
             # Fallback
             if not content:
                 content = scrape_news_detail(url)
+            
+            if content:
+                 # Check if exists
+                db_item = CollectedData.query.filter_by(original_url=url).first()
+                if not db_item:
+                    db_item = CollectedData(
+                        title=new_title,
+                        summary=summary,
+                        cover_url=cover,
+                        source=source,
+                        original_url=url,
+                        is_deep_collected=True,
+                        deep_content=content
+                    )
+                    db.session.add(db_item)
+                else:
+                    db_item.title = new_title
+                    db_item.is_deep_collected = True
+                    db_item.deep_content = content
                 
-            results.append({
-                'index': index,
-                'url': url,
-                'content': content,
-                'title': title,
-                'status': 'success' if content else 'failed'
-            })
+                # Commit per item or batch? Per item is safer for partial success but slower. 
+                # Let's commit per item to get ID.
+                db.session.commit()
+
+                results.append({
+                    'index': index,
+                    'url': url,
+                    'content': content,
+                    'title': new_title,
+                    'id': db_item.id,
+                    'status': 'success'
+                })
+            else:
+                results.append({
+                    'index': index,
+                    'url': url,
+                    'error': 'No content found',
+                    'status': 'failed'
+                })
             
         except Exception as e:
             results.append({
@@ -123,6 +187,21 @@ def collection_deep_batch():
             })
             
     return jsonify({'code': 0, 'results': results})
+
+@app.route('/admin/collection/content/<int:id>')
+@login_required
+def collection_content(id):
+    if current_user.role != 'admin':
+        return jsonify({'code': 1, 'msg': 'Permission denied'})
+    
+    data = CollectedData.query.get(id)
+    if not data:
+        return jsonify({'code': 1, 'msg': 'Data not found'})
+        
+    if not data.is_deep_collected:
+        return jsonify({'code': 1, 'msg': 'Not deep collected yet'})
+        
+    return jsonify({'code': 0, 'content': data.deep_content, 'title': data.title})
 
 @app.route('/admin/collection/save', methods=['POST'])
 @login_required
@@ -177,14 +256,23 @@ def rule_add():
         return jsonify({'code': 1, 'msg': 'Permission denied'})
     
     site_name = request.form.get('site_name')
+    headers_str = request.form.get('headers')
+
     if CollectionRule.query.filter_by(site_name=site_name).first():
         return jsonify({'code': 1, 'msg': '该站点规则已存在'})
+
+    # Validate headers JSON
+    if headers_str:
+        try:
+            json.loads(headers_str)
+        except ValueError:
+            return jsonify({'code': 1, 'msg': 'Request Headers 必须是有效的 JSON 格式'})
 
     rule = CollectionRule(
         site_name=site_name,
         title_xpath=request.form.get('title_xpath'),
         content_xpath=request.form.get('content_xpath'),
-        headers=request.form.get('headers')
+        headers=headers_str
     )
     db.session.add(rule)
     try:
@@ -205,14 +293,23 @@ def rule_edit():
         return jsonify({'code': 1, 'msg': '规则不存在'})
 
     site_name = request.form.get('site_name')
+    headers_str = request.form.get('headers')
+
     # Check uniqueness if name changed
     if site_name != rule.site_name and CollectionRule.query.filter_by(site_name=site_name).first():
         return jsonify({'code': 1, 'msg': '该站点名称已存在'})
 
+    # Validate headers JSON
+    if headers_str:
+        try:
+            json.loads(headers_str)
+        except ValueError:
+            return jsonify({'code': 1, 'msg': 'Request Headers 必须是有效的 JSON 格式'})
+
     rule.site_name = site_name
     rule.title_xpath = request.form.get('title_xpath')
     rule.content_xpath = request.form.get('content_xpath')
-    rule.headers = request.form.get('headers')
+    rule.headers = headers_str
     
     try:
         db.session.commit()
@@ -234,6 +331,182 @@ def rule_delete():
         return jsonify({'code': 0})
     else:
         return jsonify({'code': 1, 'msg': '规则不存在'})
+
+@app.route('/admin/ai_engines')
+@login_required
+def admin_ai_engines():
+    if current_user.role != 'admin':
+        flash('您没有权限访问该页面')
+        return redirect(url_for('index'))
+    engines = AiEngine.query.all()
+    return render_template('admin_ai_engines.html', title='AI引擎管理', engines=engines)
+
+@app.route('/admin/ai_engines/add', methods=['POST'])
+@login_required
+def ai_engine_add():
+    if current_user.role != 'admin':
+        return jsonify({'code': 1, 'msg': 'Permission denied'})
+    
+    provider = request.form.get('provider')
+    api_url = request.form.get('api_url')
+    api_key = request.form.get('api_key')
+    model_name = request.form.get('model_name')
+
+    if not provider or not api_url or not api_key or not model_name:
+        return jsonify({'code': 1, 'msg': '所有字段都必填'})
+
+    engine = AiEngine(
+        provider=provider,
+        api_url=api_url,
+        api_key=api_key,
+        model_name=model_name
+    )
+    db.session.add(engine)
+    try:
+        db.session.commit()
+        return jsonify({'code': 0})
+    except Exception as e:
+        return jsonify({'code': 1, 'msg': str(e)})
+
+@app.route('/admin/ai_engines/edit', methods=['POST'])
+@login_required
+def ai_engine_edit():
+    if current_user.role != 'admin':
+        return jsonify({'code': 1, 'msg': 'Permission denied'})
+    
+    id = request.form.get('id')
+    engine = AiEngine.query.get(int(id))
+    if not engine:
+        return jsonify({'code': 1, 'msg': '引擎不存在'})
+
+    engine.provider = request.form.get('provider')
+    engine.api_url = request.form.get('api_url')
+    engine.api_key = request.form.get('api_key')
+    engine.model_name = request.form.get('model_name')
+    
+    try:
+        db.session.commit()
+        return jsonify({'code': 0})
+    except Exception as e:
+        return jsonify({'code': 1, 'msg': str(e)})
+
+@app.route('/admin/ai_engines/delete', methods=['POST'])
+@login_required
+def ai_engine_delete():
+    if current_user.role != 'admin':
+        return jsonify({'code': 1, 'msg': 'Permission denied'})
+    
+    id = request.form.get('id')
+    engine = AiEngine.query.get(int(id))
+    if engine:
+        db.session.delete(engine)
+        db.session.commit()
+        return jsonify({'code': 0})
+    else:
+        return jsonify({'code': 1, 'msg': '引擎不存在'})
+
+@app.route('/admin/ai_analysis')
+@login_required
+def admin_ai_analysis():
+    if current_user.role != 'admin':
+        flash('您没有权限访问该页面')
+        return redirect(url_for('index'))
+    return render_template('admin_ai_analysis.html', title='AI数据清洗分析')
+
+@app.route('/admin/data_warehouse')
+@login_required
+def admin_data_warehouse():
+    if current_user.role != 'admin':
+        flash('您没有权限访问该页面')
+        return redirect(url_for('index'))
+    
+    search_keyword = request.args.get('search_keyword')
+    query = CollectedData.query.order_by(CollectedData.created_at.desc())
+    
+    if search_keyword:
+        query = query.filter(
+            (CollectedData.title.like(f'%{search_keyword}%')) | 
+            (CollectedData.source.like(f'%{search_keyword}%'))
+        )
+        
+    data_list = query.all()
+    return render_template('admin_data_warehouse.html', title='数据仓库管理', data_list=data_list)
+
+@app.route('/admin/data_warehouse/edit', methods=['POST'])
+@login_required
+def data_warehouse_edit():
+    if current_user.role != 'admin':
+        return jsonify({'code': 1, 'msg': 'Permission denied'})
+        
+    id = request.form.get('id')
+    data = CollectedData.query.get(int(id))
+    if not data:
+        return jsonify({'code': 1, 'msg': 'Data not found'})
+        
+    data.title = request.form.get('title')
+    data.source = request.form.get('source')
+    data.summary = request.form.get('summary')
+    data.deep_content = request.form.get('deep_content')
+    
+    try:
+        db.session.commit()
+        return jsonify({'code': 0})
+    except Exception as e:
+        return jsonify({'code': 1, 'msg': str(e)})
+
+@app.route('/admin/data_warehouse/delete', methods=['POST'])
+@login_required
+def data_warehouse_delete():
+    if current_user.role != 'admin':
+        return jsonify({'code': 1, 'msg': 'Permission denied'})
+        
+    id = request.form.get('id')
+    data = CollectedData.query.get(int(id))
+    if data:
+        db.session.delete(data)
+        db.session.commit()
+        return jsonify({'code': 0})
+    else:
+        return jsonify({'code': 1, 'msg': 'Data not found'})
+
+@app.route('/admin/data_warehouse/ai_analyze', methods=['POST'])
+@login_required
+def data_warehouse_ai_analyze():
+    if current_user.role != 'admin':
+        return jsonify({'code': 1, 'msg': 'Permission denied'})
+        
+    id = request.form.get('id')
+    prompt = request.form.get('prompt')
+    
+    data = CollectedData.query.get(int(id))
+    if not data:
+        return jsonify({'code': 1, 'msg': 'Data not found'})
+        
+    # Mock AI Analysis for now (as requested in previous steps to prepare infrastructure)
+    # In a real scenario, we would call the configured AI Engine here.
+    
+    try:
+        # Simulate processing delay
+        import time
+        time.sleep(1)
+        
+        mock_result = f"""
+        <h3>AI 分析报告</h3>
+        <p><strong>针对数据:</strong> {data.title}</p>
+        <p><strong>用户指令:</strong> {prompt}</p>
+        <hr>
+        <p>根据您的指令，AI 对该条数据进行了深入分析。以下是分析结果：</p>
+        <ul>
+            <li><strong>关键实体:</strong> {data.source} (来源)</li>
+            <li><strong>情感倾向:</strong> 中性/正面</li>
+            <li><strong>摘要提取:</strong> {data.summary or '自动生成摘要...'}</li>
+        </ul>
+        <p><em>(注：此为模拟分析结果，请接入真实 AI 引擎以获取实时智能分析)</em></p>
+        """
+        return jsonify({'code': 0, 'result': mock_result})
+        
+    except Exception as e:
+        return jsonify({'code': 1, 'msg': str(e)})
 
 @app.context_processor
 def inject_system_settings():

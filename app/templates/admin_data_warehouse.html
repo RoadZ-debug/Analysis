@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="layui-card">
+    <div class="layui-card-header">
+        <h2>数据仓库管理</h2>
+    </div>
+    <div class="layui-card-body">
+        <!-- Search Toolbar -->
+        <div class="layui-form layui-row layui-col-space15" style="margin-bottom: 20px;">
+            <div class="layui-col-md4">
+                <input type="text" name="search_keyword" placeholder="搜索标题或来源" autocomplete="off" class="layui-input">
+            </div>
+            <div class="layui-col-md2">
+                <button class="layui-btn" lay-submit lay-filter="data-search">
+                    <i class="layui-icon layui-icon-search"></i> 搜索
+                </button>
+            </div>
+        </div>
+
+        <!-- Data Table -->
+        <table class="layui-table" lay-filter="data-table" id="data-table">
+            <thead>
+                <tr>
+                    <th lay-data="{field:'id', width:80, sort:true}">ID</th>
+                    <th lay-data="{field:'title', minWidth: 200}">标题</th>
+                    <th lay-data="{field:'source', width:120, sort:true}">来源</th>
+                    <th lay-data="{field:'is_deep_collected', width:120, templet: '#statusTpl'}">状态</th>
+                    <th lay-data="{field:'created_at', width:180, sort:true}">采集时间</th>
+                    <th lay-data="{fixed: 'right', width:250, align:'center', toolbar: '#barDemo'}">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in data_list %}
+                <tr>
+                    <td>{{ item.id }}</td>
+                    <td><a href="{{ item.original_url }}" target="_blank" style="color: #01AAED;">{{ item.title }}</a></td>
+                    <td>{{ item.source }}</td>
+                    <td>{{ item.is_deep_collected }}</td>
+                    <td>{{ item.created_at.strftime('%Y-%m-%d %H:%M:%S') if item.created_at else '' }}</td>
+                    <td></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        <!-- Pagination (Backend logic simulated with simple prev/next or just full list for now) -->
+        <div id="pagination"></div>
+    </div>
+</div>
+
+<!-- Status Template -->
+<script type="text/html" id="statusTpl">
+  {{#  if(d.is_deep_collected){ }}
+    <span class="layui-badge layui-bg-green">已采集</span>
+  {{#  } else { }}
+    <span class="layui-badge layui-bg-gray">未采集</span>
+  {{#  } }}
+</script>
+
+<!-- Toolbar Template -->
+<script type="text/html" id="barDemo">
+  <a class="layui-btn layui-btn-xs" lay-event="edit">编辑</a>
+  <a class="layui-btn layui-btn-danger layui-btn-xs" lay-event="del">删除</a>
+  <a class="layui-btn layui-btn-warm layui-btn-xs" lay-event="ai-analyze">AI分析</a>
+</script>
+
+<!-- Edit Modal Template -->
+<script type="text/html" id="edit-form-tpl">
+    <form class="layui-form" style="padding: 20px;" lay-filter="edit-form">
+        <input type="hidden" name="id">
+        <div class="layui-form-item">
+            <label class="layui-form-label">标题</label>
+            <div class="layui-input-block">
+                <input type="text" name="title" required lay-verify="required" class="layui-input">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">来源</label>
+            <div class="layui-input-block">
+                <input type="text" name="source" class="layui-input">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">摘要</label>
+            <div class="layui-input-block">
+                <textarea name="summary" class="layui-textarea"></textarea>
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">正文</label>
+            <div class="layui-input-block">
+                <textarea name="deep_content" class="layui-textarea" rows="10"></textarea>
+            </div>
+        </div>
+        <div class="layui-form-item" style="text-align: right;">
+            <button class="layui-btn" lay-submit lay-filter="save-edit">保存</button>
+        </div>
+    </form>
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script>
+layui.use(['table', 'layer', 'form', 'jquery'], function(){
+    var table = layui.table;
+    var layer = layui.layer;
+    var form = layui.form;
+    var $ = layui.jquery;
+    
+    // Convert static table to dynamic table (simple init)
+    table.init('data-table', {
+        limit: 20,
+        page: true
+    });
+    
+    // Listen to tool events
+    table.on('tool(data-table)', function(obj){
+        var data = obj.data;
+        var layEvent = obj.event;
+        
+        if(layEvent === 'del'){
+            layer.confirm('真的删除行么', function(index){
+                $.post("{{ url_for('data_warehouse_delete') }}", {id: data.id}, function(res){
+                    if(res.code === 0){
+                        obj.del();
+                        layer.close(index);
+                        layer.msg('删除成功');
+                    } else {
+                        layer.msg('删除失败: ' + res.msg);
+                    }
+                });
+            });
+        } else if(layEvent === 'edit'){
+            // Need to fetch full content first as table might truncate
+            var loading = layer.load(1);
+            $.get("/admin/collection/content/" + data.id, function(res){
+                layer.close(loading);
+                if(res.code === 0 || res.code === 1){ 
+                    // Note: code 1 might be "not deep collected", but we still edit title/source
+                    openEditModal(data, res.content || '');
+                } else {
+                    layer.msg(res.msg);
+                }
+            });
+        } else if(layEvent === 'ai-analyze'){
+            openAiAnalyze(data);
+        }
+    });
+    
+    function openEditModal(data, content){
+        layer.open({
+            type: 1,
+            title: '编辑数据',
+            area: ['800px', '600px'],
+            content: $('#edit-form-tpl').html(),
+            success: function(layero, index){
+                var f = layero.find('form');
+                f.find('[name="id"]').val(data.id);
+                f.find('[name="title"]').val(data.title); // Table data might have HTML, be careful
+                // Actually layui table data is text if not templet used, but let's just set it.
+                // Ideally we should fetch fresh data from DB for edit.
+                
+                // Let's just set what we have + content
+                f.find('[name="source"]').val(data.source);
+                f.find('[name="deep_content"]').val(content);
+                
+                form.render();
+                
+                form.on('submit(save-edit)', function(formData){
+                    $.post("{{ url_for('data_warehouse_edit') }}", formData.field, function(res){
+                        if(res.code === 0){
+                            layer.msg('保存成功', {time: 1000}, function(){
+                                layer.close(index);
+                                location.reload();
+                            });
+                        } else {
+                            layer.msg(res.msg);
+                        }
+                    });
+                    return false;
+                });
+            }
+        });
+    }
+    
+    function openAiAnalyze(data){
+        var prompt = "请分析以下新闻内容并提取关键信息：\n标题：" + data.title;
+        
+        layer.prompt({
+            formType: 2,
+            value: prompt,
+            title: 'AI 分析 - 请输入提示词',
+            area: ['500px', '300px']
+        }, function(value, index, elem){
+            var loading = layer.load(1);
+            $.post("{{ url_for('data_warehouse_ai_analyze') }}", {
+                id: data.id,
+                prompt: value
+            }, function(res){
+                layer.close(loading);
+                layer.close(index);
+                if(res.code === 0){
+                    layer.open({
+                        type: 1,
+                        title: 'AI 分析结果',
+                        area: ['600px', '400px'],
+                        shadeClose: true,
+                        content: '<div style="padding: 20px; line-height: 1.6;">' + res.result + '</div>'
+                    });
+                } else {
+                    layer.msg('分析失败: ' + res.msg);
+                }
+            });
+        });
+    }
+});
+</script>
+{% endblock %}

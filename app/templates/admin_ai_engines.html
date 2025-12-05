@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="layui-card">
+    <div class="layui-card-header">
+        <h2>AI 引擎管理</h2>
+    </div>
+    <div class="layui-card-body">
+        <div class="layui-btn-container">
+            <button class="layui-btn layui-btn-normal" id="btn-add">
+                <i class="layui-icon layui-icon-add-1"></i> 新增 AI 引擎
+            </button>
+        </div>
+        
+        <hr>
+        
+        <!-- Showcase List (Grid) -->
+        <div class="layui-row layui-col-space20">
+            {% for engine in engines %}
+            <div class="layui-col-md4 layui-col-sm6">
+                <div class="layui-card ai-engine-card" style="border: 1px solid #e6e6e6; transition: all 0.3s;">
+                    <div class="layui-card-header layui-bg-cyan">
+                        <i class="layui-icon layui-icon-engine"></i> {{ engine.provider }}
+                        <span class="layui-badge layui-bg-orange layui-layout-right" style="margin-top: 10px;">{{ engine.model_name }}</span>
+                    </div>
+                    <div class="layui-card-body">
+                        <p><strong>API URL:</strong> <span class="layui-elip" title="{{ engine.api_url }}">{{ engine.api_url }}</span></p>
+                        <p><strong>API Key:</strong> <span class="layui-elip">********</span></p>
+                        <p><strong>Created:</strong> {{ engine.created_at.strftime('%Y-%m-%d') if engine.created_at else '' }}</p>
+                        
+                        <div style="margin-top: 15px; text-align: right;">
+                            <button class="layui-btn layui-btn-xs layui-btn-warm btn-edit" 
+                                data-id="{{ engine.id }}"
+                                data-provider="{{ engine.provider }}"
+                                data-api-url="{{ engine.api_url }}"
+                                data-api-key="{{ engine.api_key }}"
+                                data-model-name="{{ engine.model_name }}">
+                                <i class="layui-icon layui-icon-edit"></i> 编辑
+                            </button>
+                            <button class="layui-btn layui-btn-xs layui-btn-danger btn-delete" data-id="{{ engine.id }}">
+                                <i class="layui-icon layui-icon-delete"></i> 删除
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        
+        {% if not engines %}
+        <div style="text-align: center; color: #999; padding: 50px;">
+            <i class="layui-icon layui-icon-face-surprised" style="font-size: 50px;"></i>
+            <p>暂无 AI 引擎，请点击上方按钮添加</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Add/Edit Modal Template -->
+<script type="text/html" id="engine-form-tpl">
+    <form class="layui-form" style="padding: 20px;" lay-filter="engine-form">
+        <input type="hidden" name="id">
+        <div class="layui-form-item">
+            <label class="layui-form-label">服务商名称</label>
+            <div class="layui-input-block">
+                <input type="text" name="provider" required lay-verify="required" placeholder="如: OpenAI, Moonshot" autocomplete="off" class="layui-input">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">API URL</label>
+            <div class="layui-input-block">
+                <input type="text" name="api_url" required lay-verify="required" placeholder="https://api.openai.com/v1" autocomplete="off" class="layui-input">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">API Key</label>
+            <div class="layui-input-block">
+                <input type="password" name="api_key" required lay-verify="required" placeholder="sk-..." autocomplete="off" class="layui-input">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">模型名称</label>
+            <div class="layui-input-block">
+                <input type="text" name="model_name" required lay-verify="required" placeholder="如: gpt-4, moonshot-v1-8k" autocomplete="off" class="layui-input">
+            </div>
+        </div>
+        <div class="layui-form-item" style="text-align: right;">
+            <button class="layui-btn" lay-submit lay-filter="save-engine">保存</button>
+        </div>
+    </form>
+</script>
+
+<style>
+    .ai-engine-card:hover {
+        box-shadow: 0 0 15px rgba(0,0,0,0.1);
+        transform: translateY(-5px);
+    }
+    .layui-elip {
+        display: inline-block;
+        max-width: 70%;
+        vertical-align: bottom;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+layui.use(['layer', 'form', 'jquery'], function(){
+    var layer = layui.layer;
+    var form = layui.form;
+    var $ = layui.jquery;
+    
+    // Add Button
+    $('#btn-add').click(function(){
+        openModal('新增 AI 引擎', "{{ url_for('ai_engine_add') }}");
+    });
+    
+    // Edit Button
+    $('.btn-edit').click(function(){
+        var data = $(this).data();
+        openModal('编辑 AI 引擎', "{{ url_for('ai_engine_edit') }}", data);
+    });
+    
+    function openModal(title, url, data){
+        layer.open({
+            type: 1,
+            title: title,
+            area: ['500px', '450px'],
+            content: $('#engine-form-tpl').html(),
+            success: function(layero, index){
+                form.render();
+                if(data){
+                    // Manually set values because form.val might have issues with hidden inputs or older layui
+                    var f = layero.find('form');
+                    f.find('[name="id"]').val(data.id);
+                    f.find('[name="provider"]').val(data.provider);
+                    f.find('[name="api_url"]').val(data.apiUrl);
+                    f.find('[name="api_key"]').val(data.apiKey);
+                    f.find('[name="model_name"]').val(data.modelName);
+                }
+                
+                form.on('submit(save-engine)', function(data){
+                    $.post(url, data.field, function(res){
+                        if(res.code === 0){
+                            layer.msg('保存成功', {icon: 1, time: 1000}, function(){
+                                location.reload();
+                            });
+                        } else {
+                            layer.msg(res.msg, {icon: 2});
+                        }
+                    });
+                    return false;
+                });
+            }
+        });
+    }
+    
+    // Delete Button
+    $('.btn-delete').click(function(){
+        var id = $(this).data('id');
+        layer.confirm('确定要删除该 AI 引擎吗？', function(index){
+            $.post("{{ url_for('ai_engine_delete') }}", {id: id}, function(res){
+                if(res.code === 0){
+                    layer.msg('删除成功', {icon: 1, time: 1000}, function(){
+                        location.reload();
+                    });
+                } else {
+                    layer.msg(res.msg, {icon: 2});
+                }
+            });
+            layer.close(index);
+        });
+    });
+});
+</script>
+{% endblock %}

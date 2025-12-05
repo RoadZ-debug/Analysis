@@ -50,41 +50,43 @@
     </div>
 </div>
 
-<!-- Add/Edit Modal -->
-<div id="ruleModal" style="display: none; padding: 20px;">
-    <form class="layui-form" lay-filter="ruleForm">
-        <input type="hidden" name="id">
-        <div class="layui-form-item">
-            <label class="layui-form-label">站点名称</label>
-            <div class="layui-input-block">
-                <input type="text" name="site_name" required lay-verify="required" placeholder="请输入站点名称" autocomplete="off" class="layui-input">
+<!-- Add/Edit Modal Template -->
+<script type="text/html" id="ruleModal">
+    <div style="padding: 20px;">
+        <form class="layui-form" lay-filter="ruleForm">
+            <input type="hidden" name="id">
+            <div class="layui-form-item">
+                <label class="layui-form-label">站点名称</label>
+                <div class="layui-input-block">
+                    <input type="text" name="site_name" required lay-verify="required" placeholder="请输入站点名称" autocomplete="off" class="layui-input">
+                </div>
             </div>
-        </div>
-        <div class="layui-form-item">
-            <label class="layui-form-label">标题XPath</label>
-            <div class="layui-input-block">
-                <input type="text" name="title_xpath" required lay-verify="required" placeholder="请输入标题XPath" autocomplete="off" class="layui-input">
+            <div class="layui-form-item">
+                <label class="layui-form-label">标题XPath</label>
+                <div class="layui-input-block">
+                    <input type="text" name="title_xpath" required lay-verify="required" placeholder="请输入标题XPath" autocomplete="off" class="layui-input">
+                </div>
             </div>
-        </div>
-        <div class="layui-form-item">
-            <label class="layui-form-label">内容XPath</label>
-            <div class="layui-input-block">
-                <input type="text" name="content_xpath" required lay-verify="required" placeholder="请输入内容XPath" autocomplete="off" class="layui-input">
+            <div class="layui-form-item">
+                <label class="layui-form-label">内容XPath</label>
+                <div class="layui-input-block">
+                    <input type="text" name="content_xpath" required lay-verify="required" placeholder="请输入内容XPath" autocomplete="off" class="layui-input">
+                </div>
             </div>
-        </div>
-        <div class="layui-form-item layui-form-text">
-            <label class="layui-form-label">Request Headers</label>
-            <div class="layui-input-block">
-                <textarea name="headers" placeholder="请输入JSON格式的Request Headers" class="layui-textarea" style="height: 150px;"></textarea>
+            <div class="layui-form-item layui-form-text">
+                <label class="layui-form-label">Request Headers</label>
+                <div class="layui-input-block">
+                    <textarea name="headers" placeholder="请输入JSON格式的Request Headers" class="layui-textarea" style="height: 150px;"></textarea>
+                </div>
             </div>
-        </div>
-        <div class="layui-form-item">
-            <div class="layui-input-block">
-                <button class="layui-btn" lay-submit lay-filter="submitRule">立即提交</button>
+            <div class="layui-form-item">
+                <div class="layui-input-block">
+                    <button class="layui-btn" lay-submit lay-filter="submitRule">立即提交</button>
+                </div>
             </div>
-        </div>
-    </form>
-</div>
+        </form>
+    </div>
+</script>
 {% endblock %}
 
 {% block scripts %}
@@ -97,44 +99,62 @@ layui.use(['layer', 'form', 'jquery'], function(){
 
     // Open Modal
     window.openRuleModal = function() {
-        // Clear form
-        form.val("ruleForm", {
-            "id": "",
-            "site_name": "",
-            "title_xpath": "",
-            "content_xpath": "",
-            "headers": '{\n  "User-Agent": "Mozilla/5.0"\n}'
-        });
-        
         ruleIndex = layer.open({
             type: 1,
             title: '新增采集规则',
             area: ['600px', '550px'],
-            content: $('#ruleModal')
+            content: $('#ruleModal').html(), // Get HTML string from template
+            success: function(layero, index){
+                var formDom = layero.find('form');
+                // Initialize form data
+                formDom.find('input[name="id"]').val("");
+                formDom.find('input[name="site_name"]').val("");
+                formDom.find('input[name="title_xpath"]').val("");
+                formDom.find('input[name="content_xpath"]').val("");
+                formDom.find('textarea[name="headers"]').val('{\n  "User-Agent": "Mozilla/5.0"\n}');
+                
+                // Re-render form inside the layer
+                form.render(null, 'ruleForm');
+            }
         });
     }
 
     // Edit Rule
     $(document).on('click', '.btn-edit', function() {
         var data = $(this).data('rule');
-        form.val("ruleForm", {
-            "id": data.id,
-            "site_name": data.site_name,
-            "title_xpath": data.title_xpath,
-            "content_xpath": data.content_xpath,
-            "headers": data.headers
-        });
         
         ruleIndex = layer.open({
             type: 1,
             title: '编辑采集规则',
             area: ['600px', '550px'],
-            content: $('#ruleModal')
+            content: $('#ruleModal').html(), // Get HTML string from template
+            success: function(layero, index){
+                var formDom = layero.find('form');
+                // Initialize form data
+                formDom.find('input[name="id"]').val(data.id);
+                formDom.find('input[name="site_name"]').val(data.site_name);
+                formDom.find('input[name="title_xpath"]').val(data.title_xpath);
+                formDom.find('input[name="content_xpath"]').val(data.content_xpath);
+                formDom.find('textarea[name="headers"]').val(data.headers);
+                
+                // Re-render form inside the layer
+                form.render(null, 'ruleForm');
+            }
         });
     });
 
     // Submit Form
     form.on('submit(submitRule)', function(data){
+        // Validate JSON headers
+        try {
+            if(data.field.headers) {
+                JSON.parse(data.field.headers);
+            }
+        } catch(e) {
+            layer.msg('Request Headers 必须是有效的 JSON 格式', {icon: 2});
+            return false;
+        }
+
         var url = data.field.id ? "{{ url_for('rule_edit') }}" : "{{ url_for('rule_add') }}";
         
         $.ajax({

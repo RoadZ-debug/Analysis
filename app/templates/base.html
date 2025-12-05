@@ -42,7 +42,10 @@
             {% if current_user.role == 'admin' %}
             <dd><a href="{{ url_for('admin') }}">后台管理</a></dd>
             <dd><a href="{{ url_for('admin_collection') }}">数据采集管理</a></dd>
+            <dd><a href="{{ url_for('admin_data_warehouse') }}">数据仓库管理</a></dd>
             <dd><a href="{{ url_for('admin_rules') }}">采集规则库</a></dd>
+            <dd><a href="{{ url_for('admin_ai_engines') }}">AI引擎管理</a></dd>
+            <dd><a href="{{ url_for('admin_ai_analysis') }}">AI数据清洗分析</a></dd>
             {% endif %}
           </dl>
         </li>

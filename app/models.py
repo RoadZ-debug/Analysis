@@ -72,6 +72,27 @@ class CollectionRule(db.Model):
     def __repr__(self):
         return '<CollectionRule {}>'.format(self.site_name)
 
+class AiEngine(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    provider = db.Column(db.String(64))
+    api_url = db.Column(db.String(256))
+    api_key = db.Column(db.String(256))
+    model_name = db.Column(db.String(64))
+    created_at = db.Column(db.DateTime, default=db.func.now())
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'provider': self.provider,
+            'api_url': self.api_url,
+            'api_key': self.api_key,
+            'model_name': self.model_name,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else ''
+        }
+
+    def __repr__(self):
+        return '<AiEngine {}>'.format(self.model_name)
+
 @login.user_loader
 def load_user(id):
     return User.query.get(int(id))
