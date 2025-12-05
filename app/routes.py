@@ -435,7 +435,98 @@ def admin_data_warehouse():
         )
         
     data_list = query.all()
-    return render_template('admin_data_warehouse.html', title='数据仓库管理', data_list=data_list)
+    rules = CollectionRule.query.all()
+    return render_template('admin_data_warehouse.html', title='数据仓库管理', data_list=data_list, rules=rules)
+
+@app.route('/admin/data_warehouse/bind_rule', methods=['POST'])
+@login_required
+def data_warehouse_bind_rule():
+    if current_user.role != 'admin':
+        return jsonify({'code': 1, 'msg': 'Permission denied'})
+        
+    id = request.form.get('id')
+    rule_names = request.form.get('rule_names')
+    
+    data = CollectedData.query.get(int(id))
+    if not data:
+        return jsonify({'code': 1, 'msg': 'Data not found'})
+        
+    if not rule_names:
+         return jsonify({'code': 1, 'msg': 'Rule names required'})
+         
+    # Validate rules exist (optional, check if at least one exists)
+    # rules = rule_names.split(',')
+    # for r in rules: ...
+
+    data.source = rule_names
+    
+    try:
+        db.session.commit()
+        return jsonify({'code': 0})
+    except Exception as e:
+        return jsonify({'code': 1, 'msg': str(e)})
+
+@app.route('/admin/data_warehouse/recollect', methods=['POST'])
+@login_required
+def data_warehouse_recollect():
+    if current_user.role != 'admin':
+        return jsonify({'code': 1, 'msg': 'Permission denied'})
+        
+    id = request.form.get('id')
+    data = CollectedData.query.get(int(id))
+    
+    if not data:
+        return jsonify({'code': 1, 'msg': 'Data not found'})
+        
+    url = data.original_url
+    if not url:
+        return jsonify({'code': 1, 'msg': 'No URL to collect'})
+        
+    # Determine rule: use current source (bound rules)
+    source_str = data.source
+    
+    content = ""
+    new_title = data.title
+    success = False
+
+    if source_str:
+        sources = source_str.split(',')
+        for source in sources:
+            source = source.strip()
+            if not source: continue
+            
+            rule = CollectionRule.query.filter_by(site_name=source).first()
+            if rule:
+                try:
+                    result = scrape_with_rule(url, rule.to_dict())
+                    if result and result.get('content'):
+                        content = result['content']
+                        if result.get('title'):
+                            new_title = result.get('title')
+                        success = True
+                        break # Stop if successful
+                except Exception:
+                    continue # Try next rule if this one fails
+
+    if not success:
+         # Fallback to generic if no rule bound or all failed
+         try:
+            content = scrape_news_detail(url)
+         except Exception:
+            pass
+             
+    if content:
+        data.title = new_title
+        data.is_deep_collected = True
+        data.deep_content = content
+        try:
+            db.session.commit()
+            return jsonify({'code': 0, 'msg': '采集成功', 'title': new_title})
+        except Exception as e:
+            return jsonify({'code': 1, 'msg': str(e)})
+    else:
+        return jsonify({'code': 1, 'msg': '采集失败，未获取到内容'})
+
 
 @app.route('/admin/data_warehouse/edit', methods=['POST'])
 @login_required
@@ -555,14 +646,37 @@ def logout():
     logout_user()
     return redirect(url_for('login'))
 
-@app.route('/admin')
+@app.route('/admin', methods=['GET', 'POST'])
 @login_required
 def admin():
     if current_user.role != 'admin':
         flash('您没有权限访问该页面')
         return redirect(url_for('index'))
+        
+    if request.method == 'POST':
+        app_name = request.form.get('app_name')
+        logo_url = request.form.get('logo_url')
+        
+        settings = SystemSettings.query.first()
+        if not settings:
+            settings = SystemSettings()
+            db.session.add(settings)
+            
+        settings.app_name = app_name
+        settings.logo_url = logo_url
+        
+        try:
+            db.session.commit()
+            flash('系统设置已更新')
+        except Exception as e:
+            db.session.rollback()
+            flash(f'更新失败: {str(e)}')
+            
+        return redirect(url_for('admin'))
+        
     users = User.query.all()
-    return render_template('admin.html', title='后台管理', users=users)
+    settings = SystemSettings.query.first()
+    return render_template('admin.html', title='后台管理', users=users, settings=settings)
 
 @app.route('/admin/user/add', methods=['POST'])
 @login_required

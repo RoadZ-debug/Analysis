@@ -62,9 +62,29 @@
 
 <!-- Toolbar Template -->
 <script type="text/html" id="barDemo">
+  <a class="layui-btn layui-btn-xs layui-btn-normal" lay-event="recollect">重采</a>
+  <a class="layui-btn layui-btn-xs layui-btn-warm" lay-event="bind-rule">绑定</a>
   <a class="layui-btn layui-btn-xs" lay-event="edit">编辑</a>
   <a class="layui-btn layui-btn-danger layui-btn-xs" lay-event="del">删除</a>
   <a class="layui-btn layui-btn-warm layui-btn-xs" lay-event="ai-analyze">AI分析</a>
+</script>
+
+<!-- Bind Rule Modal Template -->
+<script type="text/html" id="bind-rule-tpl">
+    <form class="layui-form" style="padding: 20px;" lay-filter="bind-rule-form">
+        <input type="hidden" name="id">
+        <div class="layui-form-item">
+            <label class="layui-form-label">选择规则</label>
+            <div class="layui-input-block">
+                {% for rule in rules %}
+                <input type="checkbox" name="rule_item" value="{{ rule.site_name }}" title="{{ rule.site_name }}" lay-skin="primary">
+                {% endfor %}
+            </div>
+        </div>
+        <div class="layui-form-item" style="text-align: right;">
+            <button class="layui-btn" lay-submit lay-filter="save-bind">保存</button>
+        </div>
+    </form>
 </script>
 
 <!-- Edit Modal Template -->
@@ -158,8 +178,72 @@ layui.use(['table', 'layer', 'form', 'jquery'], function(){
             });
         } else if(layEvent === 'ai-analyze'){
             openAiAnalyze(data);
+        } else if(layEvent === 'recollect'){
+            var loading = layer.load(1);
+            $.post("{{ url_for('data_warehouse_recollect') }}", {id: data.id}, function(res){
+                layer.close(loading);
+                if(res.code === 0){
+                    layer.msg('采集成功');
+                    obj.update({
+                        title: res.title,
+                        is_deep_collected: 1
+                    });
+                } else {
+                    layer.msg('采集失败: ' + res.msg);
+                }
+            });
+        } else if(layEvent === 'bind-rule'){
+            openBindRuleModal(data, obj);
         }
     });
+    
+    function openBindRuleModal(data, obj){
+        layer.open({
+            type: 1,
+            title: '绑定采集规则',
+            area: ['500px', '400px'],
+            content: $('#bind-rule-tpl').html(),
+            success: function(layero, index){
+                var f = layero.find('form');
+                f.find('[name="id"]').val(data.id);
+                
+                // Pre-select
+                if(data.source){
+                    var sources = data.source.split(',');
+                    sources.forEach(function(s){
+                        f.find('input[value="' + s.trim() + '"]').prop('checked', true);
+                    });
+                }
+                
+                form.render();
+                
+                form.on('submit(save-bind)', function(formData){
+                    var selectedRules = [];
+                    f.find('input[name="rule_item"]:checked').each(function(){
+                        selectedRules.push($(this).val());
+                    });
+                    
+                    var ruleStr = selectedRules.join(',');
+                    
+                    $.post("{{ url_for('data_warehouse_bind_rule') }}", {
+                        id: data.id,
+                        rule_names: ruleStr
+                    }, function(res){
+                        if(res.code === 0){
+                            layer.msg('绑定成功');
+                            layer.close(index);
+                            obj.update({
+                                source: ruleStr
+                            });
+                        } else {
+                            layer.msg(res.msg);
+                        }
+                    });
+                    return false;
+                });
+            }
+        });
+    }
     
     function openEditModal(data){
         layer.open({
